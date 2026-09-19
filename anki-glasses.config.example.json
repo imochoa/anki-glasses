@@ -1,0 +1,27 @@
+{
+  "ankiConnectUrl": "http://127.0.0.1:8765",
+  "port": 8710,
+  "host": "0.0.0.0",
+  "allowedOrigins": [],
+  "filter": {
+    "includeDecks": [],
+    "excludeDecks": [],
+    "excludeTags": ["noglasses"],
+    "excludeNoteTypes": [],
+    "skipImages": true,
+    "skipAudioVideo": true,
+    "skipMath": true,
+    "skipTables": true,
+    "skipRichMarkup": true,
+    "skipNoteTypeBackgrounds": false,
+    "maxChars": null,
+    "layout": { "charsPerLine": 42, "linesPerScreen": 6, "maxPages": 1 }
+  },
+  "session": {
+    "allowSiblings": false,
+    "sessionLimit": null,
+    "respectDailyLimits": true,
+    "batchSize": 40
+  },
+  "grades": { "click": 3, "up": 4, "down": 1, "double_click": 2 }
+}

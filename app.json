@@ -1,0 +1,21 @@
+{
+  "package_id": "com.kenjimax.ankiglasses",
+  "edition": "202601",
+  "name": "Anki Glasses",
+  "version": "1.0.0",
+  "min_app_version": "2.2.10",
+  "min_sdk_version": "0.0.15",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Reads due cards from your own Anki and records the grade you give each one.",
+      "whitelist": [
+        "http://192.0.2.10:8710"
+      ]
+    }
+  ],
+  "supported_languages": [
+    "en"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "name": "anki-glasses",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Anki spaced repetition on Even Realities G2 glasses, graded with the R1 ring",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build:server && npm run build:app",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:app": "vite build",
+    "dev:server": "tsx watch src/server/index.ts",
+    "start": "node dist/server/server/index.js",
+    "report": "tsx tools/report.ts",
+    "calibrate": "tsx tools/calibrate.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:e2e": "tsx test/e2e/run.ts",
+    "qr": "evenhub qr",
+    "pack": "npm run build:app && evenhub pack app.json dist/app",
+    "pretest:e2e": "npm run build:app"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "^0.0.15"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.1.14",
+    "@evenrealities/evenhub-simulator": "^0.9.5",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}
