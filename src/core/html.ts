@@ -7,7 +7,7 @@
  */
 
 const BLOCK_TAGS = [
-  'div', 'p', 'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'div', 'p', 'li', 'tr', 'dl', 'dt', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
 ];
 
 /**
@@ -137,6 +137,21 @@ export function htmlToText(html: string): string {
   // question. The display has one type size, so it is spelled out instead.
   text = text.replace(/<sup\b[^>]*>([\s\S]*?)<\/sup>/gi, '^($1)');
   text = text.replace(/<sub\b[^>]*>([\s\S]*?)<\/sub>/gi, '_($1)');
+
+  // Two spans that touch are separate pieces of text that the note type's CSS
+  // spaces apart (flex items, chips), e.g. a German phrase and its English
+  // gloss. Without the space they would reach the glasses as one word,
+  // "vor dem Hausin front of". Formatting inside a word, like <b>H</b>aus,
+  // is not a span meeting a span and is left alone.
+  text = text.replace(/<\/span>(?=<span\b)/gi, '</span> ');
+
+  // A label followed by its value, as a definition list term or a table row
+  // header, reads as "Präsens: er bäckt" on one line. The term starts a line
+  // (dt is a block tag) and its value follows it rather than taking a row of
+  // its own. Any other cells that meet are kept apart with a bar.
+  text = text.replace(/<\/dt>\s*(?=<dd\b)/gi, ': ');
+  text = text.replace(/<\/th>\s*(?=<td\b)/gi, ': ');
+  text = text.replace(/<\/t[hd]>\s*(?=<t[hd]\b)/gi, ' | ');
 
   // Cloze deletion placeholders render as [...]; keep them, they carry meaning.
   text = text.replace(/<br\b[^>]*>/gi, LINE_BREAK);
