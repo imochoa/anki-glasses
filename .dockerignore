@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+*.log
+.anki-glasses-e2e
+.env
+anki-glasses.config.json
+test
+tools
+docs
