@@ -1,0 +1,54 @@
+# Anki, AnkiConnect and anki-glasses in containers, for a machine without a
+# desktop (a home server or a VPS). See "Run it in containers" in README.md.
+#
+#   cp .env.example .env    # then set ANKI_GLASSES_KEY
+#   docker compose up -d    # or: podman compose up -d
+
+services:
+  anki:
+    # Anki desktop with AnkiConnect, run headless. AnkiConnect listens on
+    # 0.0.0.0:8765 inside the compose network only; it is not published.
+    image: docker.io/thisisnttheway/headless-anki:sha-4c96c38
+    restart: unless-stopped
+    volumes:
+      - anki-data:/data
+    ports:
+      # VNC into the Anki window, for the one-time AnkiWeb login. Loopback
+      # only: reach it with an SSH tunnel on a remote machine.
+      - "127.0.0.1:5900:5900"
+
+  anki-sync:
+    # The app never syncs and a headless Anki only syncs when its profile
+    # opens, so push reviews to AnkiWeb on a timer. A failed sync (not logged
+    # in yet, or AnkiWeb wants a full sync) is logged and retried next round.
+    image: docker.io/curlimages/curl:8.11.1
+    restart: unless-stopped
+    depends_on: [anki]
+    environment:
+      SYNC_INTERVAL: ${ANKI_SYNC_INTERVAL:-600}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          sleep "$$SYNC_INTERVAL"
+          echo "$$(date -u +%FT%TZ) sync: $$(curl -s --max-time 120 http://anki:8765 -d '{"action":"sync","version":6}')"
+        done
+
+  anki-glasses:
+    build: .
+    restart: unless-stopped
+    depends_on: [anki]
+    environment:
+      ANKI_CONNECT_URL: http://anki:8765
+      ANKI_GLASSES_KEY: ${ANKI_GLASSES_KEY:?set ANKI_GLASSES_KEY in .env}
+    ports:
+      # The phone has to reach this. Set ANKI_GLASSES_BIND to one interface's
+      # address (LAN, Tailscale, NetBird) to keep it off the others.
+      - "${ANKI_GLASSES_BIND:-0.0.0.0}:8710:8710"
+    # Optional: deck filters and layout. Create the file first, or the bind
+    # mount turns into an empty directory and the server refuses to start.
+    # volumes:
+    #   - ./anki-glasses.config.json:/config/anki-glasses.config.json:ro
+
+volumes:
+  anki-data:
