@@ -4,3 +4,4 @@ dist/
 .anki-glasses-e2e/
 # Names the decks in one person's collection, so it stays local.
 anki-glasses.config.json
+.env

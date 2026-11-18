@@ -77,6 +77,53 @@ ANKI_GLASSES_KEY='something long and random' npm start
 
 Keep it in the environment rather than in the config file.
 
+## Run it in containers
+
+For a machine without a desktop, such as a home server or a VPS,
+`compose.yaml` runs the whole stack with docker or podman:
+
+| Service        | What it is                                                                                     |
+| -------------- | ---------------------------------------------------------------------------------------------- |
+| `anki`         | Anki desktop with AnkiConnect, run headless ([headless-anki](https://github.com/ThisIsntTheWay/headless-anki)) |
+| `anki-sync`    | Calls AnkiConnect's `sync` every 10 minutes, so reviews reach AnkiWeb                          |
+| `anki-glasses` | This server, built from `Dockerfile`                                                           |
+
+```bash
+cp .env.example .env      # set ANKI_GLASSES_KEY, e.g. openssl rand -base64 24
+docker compose up -d      # or: podman compose up -d
+```
+
+AnkiConnect is reachable only inside the compose network; only port 8710 is
+published. Set `ANKI_GLASSES_BIND` in `.env` to one interface's address to
+publish it on that interface alone.
+
+The container has its own collection in the `anki-data` volume, so it has to
+sign in to AnkiWeb once. The Anki window is served over VNC on
+`127.0.0.1:5900`. On a remote machine, tunnel to it first:
+
+```bash
+ssh -L 5900:127.0.0.1:5900 your-server
+```
+
+Then connect a VNC viewer to `localhost:5900`, click **Sync** and sign in.
+When Anki asks which side to keep, choose **Download** so AnkiWeb's
+collection replaces the container's empty one. After that, `anki-sync` keeps it in
+step. Do not mount a desktop's live `Anki2` folder instead: two Anki
+processes on one collection file can corrupt it.
+
+Desktop Anki and the container are two clients of one AnkiWeb account. Sync
+the desktop before and after a session on the glasses. If both change the
+collection in a way AnkiWeb cannot merge, it asks for a full sync, which
+`anki-sync` cannot answer. Its log then shows the error until you resolve the
+full sync over VNC.
+
+The headless-anki image is built for x86-64 only. On an ARM machine, such as
+an Apple Silicon Mac's podman VM, Anki runs under emulation and crashes. The
+`anki-glasses` image itself builds for both architectures.
+
+To use deck filters, create `anki-glasses.config.json` next to
+`compose.yaml` and uncomment its volume in `compose.yaml`.
+
 ## Getting it onto the glasses
 
 Install the Even App on the phone, pair the G2 and the R1 there as normal, then
