@@ -9,6 +9,7 @@ import {
   stripInvisibleCharacters,
 } from '../src/core/html.js';
 import {
+  DEFAULT_LAYOUT,
   MAX_TEXT_BYTES,
   layoutPages,
   paginate,
@@ -52,6 +53,48 @@ describe('html', () => {
 
   it('turns block tags into line breaks', () => {
     assert.equal(htmlToText('one<br>two<div>three</div>'), 'one\ntwo\nthree');
+  });
+
+  it('does not put a blank line between fields that sit in their own blocks', () => {
+    // The shape of a note type that wraps each field, including template
+    // indentation between the tags.
+    const html = `<div class="wrap">
+  <div class="chips"><span>preposition</span></div>
+  <div class="headword">aus</div>
+  <ul><li>Which case does it take?</li>
+    <li>Meaning?</li></ul>
+</div>`;
+    assert.equal(htmlToText(html), 'preposition\naus\nWhich case does it take?\nMeaning?');
+  });
+
+  it('keeps a space between spans that touch, as their css would', () => {
+    const html = '<div class="pair"><span class="w"><b>vor dem Haus</b></span><span class="en">in front of</span></div>';
+    assert.equal(htmlToText(html), 'vor dem Haus in front of');
+  });
+
+  it('puts a definition list term and its value on one line', () => {
+    const html = '<dl><dt>Präsens</dt><dd><span>er</span> bäckt</dd><dt>Perfekt</dt><dd>hat gebacken</dd></dl>';
+    assert.equal(htmlToText(html), 'Präsens: er bäckt\nPerfekt: hat gebacken');
+  });
+
+  it('separates table cells instead of joining them', () => {
+    const html = '<table><tr><th>Präsens</th><td>bäckt</td></tr><tr><td>a</td><td>b</td></tr></table>';
+    assert.equal(htmlToText(html), 'Präsens: bäckt\na | b');
+  });
+
+  it('does not split a word that is only partly formatted', () => {
+    assert.equal(htmlToText('<b>H</b>aus'), 'Haus');
+    assert.equal(htmlToText('Ge<i>schichte</i>'), 'Geschichte');
+  });
+
+  it('keeps a blank line someone asked for with two line breaks', () => {
+    assert.equal(htmlToText('one<br><br>two'), 'one\n\ntwo');
+    assert.equal(htmlToText('<div>one<br><br></div><div>two</div>'), 'one\n\ntwo');
+  });
+
+  it('fits a four line question on one screen', () => {
+    const html = '<div>preposition</div><div>aus</div><ul><li>Which case?</li><li>Meaning?</li></ul>';
+    assert.equal(layoutPages(htmlToText(html), DEFAULT_LAYOUT).length, 1);
   });
 
   it('decodes entities including numeric ones', () => {
