@@ -16,20 +16,35 @@ import {
 import {
   EASE_LABELS,
   type AnswerResponse,
+  type DeckListResponse,
+  type DeckSummary,
   type Ease,
   type Gesture,
   type NextCardResponse,
   type ReviewCard,
+  type StartSessionRequest,
 } from '../shared/types.js';
 import { explainFailure } from '../core/errors.js';
 import { GlassesDisplay, type Frame } from './glasses.js';
 
 const API = {
   config: '/api/config',
+  decks: '/api/decks',
   start: '/api/session/start',
   next: '/api/session/next',
   answer: '/api/session/answer',
 };
+
+/** Lines the deck list uses, when the server does not say. */
+const DEFAULT_LIST_LINES = 6;
+
+/** The deck list entry that reviews every deck, always listed first. */
+interface DeckEntry {
+  /** Null reviews every allowed deck. */
+  deck: string | null;
+  label: string;
+  due: number;
+}
 
 /**
  * The pairing key arrives in the address the phone opens, which is what the
@@ -87,6 +102,13 @@ class AnkiGlassesApp {
   private busy = false;
   private lastGesture: { gesture: Gesture; at: number } | null = null;
 
+  private entries: DeckEntry[] = [];
+  /** The deck tree the current session is limited to, null for every deck. */
+  private currentDeck: string | null = null;
+  private listLines = DEFAULT_LIST_LINES;
+  /** What a tap on the error screen retries. */
+  private retry: 'decks' | 'session' = 'decks';
+
   async run(): Promise<void> {
     const bridge = await waitForEvenAppBridge();
     this.display = new GlassesDisplay(bridge);
@@ -102,18 +124,59 @@ class AnkiGlassesApp {
     });
 
     try {
-      this.grades = (await api<{ grades: GradeMapping }>(API.config)).grades ?? DEFAULT_GRADES;
+      const config = await api<{ grades?: GradeMapping; layout?: { linesPerScreen?: number } }>(
+        API.config,
+      );
+      this.grades = config.grades ?? DEFAULT_GRADES;
+      this.listLines = config.layout?.linesPerScreen ?? DEFAULT_LIST_LINES;
     } catch (error) {
       console.log(`config fetch failed, using defaults: ${String(error)}`);
     }
 
-    await this.startSession();
+    await this.showDecks();
   }
 
-  private async startSession(): Promise<void> {
+  /**
+   * Offer the deck trees, or go straight to the cards when there is nothing
+   * to choose between.
+   */
+  private async showDecks(): Promise<void> {
     this.busy = true;
+    this.retry = 'decks';
     try {
-      await api(API.start, { method: 'POST', body: '{}' });
+      const { decks } = await api<DeckListResponse>(API.decks);
+      if (decks.length <= 1) {
+        await this.startSession(null);
+        return;
+      }
+      this.entries = [
+        { deck: null, label: 'All decks', due: decks.reduce((sum, d) => sum + d.due, 0) },
+        ...decks.map((d: DeckSummary) => ({ deck: d.name, label: d.name, due: d.due })),
+      ];
+      const current = this.entries.findIndex((entry) => entry.deck === this.currentDeck);
+      this.card = null;
+      this.state = {
+        screen: 'decks',
+        page: current < 0 ? 0 : current,
+        pageCount: this.entries.length,
+      };
+      await this.draw();
+    } catch (error) {
+      await this.showError(error);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async startSession(deck: string | null): Promise<void> {
+    this.busy = true;
+    this.retry = 'session';
+    // Recorded before the request, so a tap on the error screen retries the
+    // deck that was picked rather than the one before it.
+    this.currentDeck = deck;
+    try {
+      const request: StartSessionRequest = { deck };
+      await api(API.start, { method: 'POST', body: JSON.stringify(request) });
       this.answeredThisSession = 0;
       this.notice = '';
       await this.loadNext();
@@ -186,7 +249,25 @@ class AnkiGlassesApp {
           break;
 
         case 'refresh':
-          await this.startSession();
+          if (this.state.screen === 'error' && this.retry === 'decks') {
+            await this.showDecks();
+          } else {
+            await this.startSession(this.currentDeck);
+          }
+          return;
+
+        case 'select':
+          this.state = { ...this.state, page: action.index };
+          break;
+
+        case 'pick': {
+          const entry = this.entries[action.index];
+          if (entry) await this.startSession(entry.deck);
+          return;
+        }
+
+        case 'decks':
+          await this.showDecks();
           return;
 
         case 'quit':
@@ -237,6 +318,26 @@ class AnkiGlassesApp {
     await this.draw();
   }
 
+  /**
+   * The visible slice of the deck list, with the highlighted entry kept near
+   * the middle so the wearer can see what lies either side of it.
+   */
+  private deckListBody(): string {
+    const lines = Math.max(1, this.listLines);
+    const selected = this.state.page;
+    const first = Math.max(
+      0,
+      Math.min(selected - Math.floor(lines / 2), this.entries.length - lines),
+    );
+    return this.entries
+      .slice(first, first + lines)
+      .map((entry, offset) => {
+        const marker = first + offset === selected ? '>' : '  ';
+        return `${marker} ${truncate(entry.label, 30)}   ${entry.due}`;
+      })
+      .join('\n');
+  }
+
   private pageMarker(): string {
     return this.state.pageCount > 1 ? `  ${this.state.page + 1}/${this.state.pageCount}` : '';
   }
@@ -245,6 +346,13 @@ class AnkiGlassesApp {
     switch (this.state.screen) {
       case 'loading':
         return { header: 'Anki', body: 'Loading cards...', footer: '' };
+
+      case 'decks':
+        return {
+          header: `Anki   pick a deck   ${this.state.page + 1}/${this.state.pageCount}`,
+          body: this.deckListBody(),
+          footer: 'up/down move    tap start',
+        };
 
       case 'question': {
         const card = this.card;
@@ -276,7 +384,10 @@ class AnkiGlassesApp {
             this.answeredThisSession > 0
               ? `Done. ${this.answeredThisSession} reviewed.`
               : 'Nothing due that fits the glasses.',
-          footer: 'tap check again    hold quit',
+          footer:
+            this.entries.length > 0
+              ? 'tap check again    2tap decks'
+              : 'tap check again    hold quit',
         };
 
       case 'error':

@@ -282,6 +282,41 @@ describe('interaction reducer', () => {
   it('refreshes from the done screen', () => {
     assert.deepEqual(reduce({ screen: 'done', page: 0, pageCount: 1 }, 'click'), { kind: 'refresh' });
   });
+
+  it('goes back to the deck list on a double tap from the done screen', () => {
+    assert.deepEqual(reduce({ screen: 'done', page: 0, pageCount: 1 }, 'double_click'), {
+      kind: 'decks',
+    });
+  });
+
+  it('still retries on either tap from the error screen', () => {
+    const error = { screen: 'error' as const, page: 0, pageCount: 1 };
+    assert.deepEqual(reduce(error, 'click'), { kind: 'refresh' });
+    assert.deepEqual(reduce(error, 'double_click'), { kind: 'refresh' });
+  });
+});
+
+describe('deck list gestures', () => {
+  const list = (page: number) => ({ screen: 'decks' as const, page, pageCount: 3 });
+
+  it('moves the highlight with up and down without wrapping', () => {
+    assert.deepEqual(reduce(list(0), 'down'), { kind: 'select', index: 1 });
+    assert.deepEqual(reduce(list(1), 'up'), { kind: 'select', index: 0 });
+    assert.deepEqual(reduce(list(0), 'up'), { kind: 'none' });
+    assert.deepEqual(reduce(list(2), 'down'), { kind: 'none' });
+  });
+
+  it('starts the highlighted deck on a tap', () => {
+    assert.deepEqual(reduce(list(2), 'click'), { kind: 'pick', index: 2 });
+  });
+
+  it('ignores a double tap, so a doubled tap cannot pick twice', () => {
+    assert.deepEqual(reduce(list(1), 'double_click'), { kind: 'none' });
+  });
+
+  it('quits on a long press like every other screen', () => {
+    assert.deepEqual(reduce(list(1), 'long_press'), { kind: 'quit' });
+  });
 });
 
 describe('host event decoding', () => {
