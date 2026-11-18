@@ -9,6 +9,7 @@ import {
   stripInvisibleCharacters,
 } from '../src/core/html.js';
 import {
+  DEFAULT_LAYOUT,
   MAX_TEXT_BYTES,
   layoutPages,
   paginate,
@@ -52,6 +53,48 @@ describe('html', () => {
 
   it('turns block tags into line breaks', () => {
     assert.equal(htmlToText('one<br>two<div>three</div>'), 'one\ntwo\nthree');
+  });
+
+  it('does not put a blank line between fields that sit in their own blocks', () => {
+    // The shape of a note type that wraps each field, including template
+    // indentation between the tags.
+    const html = `<div class="wrap">
+  <div class="chips"><span>preposition</span></div>
+  <div class="headword">aus</div>
+  <ul><li>Which case does it take?</li>
+    <li>Meaning?</li></ul>
+</div>`;
+    assert.equal(htmlToText(html), 'preposition\naus\nWhich case does it take?\nMeaning?');
+  });
+
+  it('keeps a space between spans that touch, as their css would', () => {
+    const html = '<div class="pair"><span class="w"><b>vor dem Haus</b></span><span class="en">in front of</span></div>';
+    assert.equal(htmlToText(html), 'vor dem Haus in front of');
+  });
+
+  it('puts a definition list term and its value on one line', () => {
+    const html = '<dl><dt>Präsens</dt><dd><span>er</span> bäckt</dd><dt>Perfekt</dt><dd>hat gebacken</dd></dl>';
+    assert.equal(htmlToText(html), 'Präsens: er bäckt\nPerfekt: hat gebacken');
+  });
+
+  it('separates table cells instead of joining them', () => {
+    const html = '<table><tr><th>Präsens</th><td>bäckt</td></tr><tr><td>a</td><td>b</td></tr></table>';
+    assert.equal(htmlToText(html), 'Präsens: bäckt\na | b');
+  });
+
+  it('does not split a word that is only partly formatted', () => {
+    assert.equal(htmlToText('<b>H</b>aus'), 'Haus');
+    assert.equal(htmlToText('Ge<i>schichte</i>'), 'Geschichte');
+  });
+
+  it('keeps a blank line someone asked for with two line breaks', () => {
+    assert.equal(htmlToText('one<br><br>two'), 'one\n\ntwo');
+    assert.equal(htmlToText('<div>one<br><br></div><div>two</div>'), 'one\n\ntwo');
+  });
+
+  it('fits a four line question on one screen', () => {
+    const html = '<div>preposition</div><div>aus</div><ul><li>Which case?</li><li>Meaning?</li></ul>';
+    assert.equal(layoutPages(htmlToText(html), DEFAULT_LAYOUT).length, 1);
   });
 
   it('decodes entities including numeric ones', () => {
@@ -281,6 +324,41 @@ describe('interaction reducer', () => {
 
   it('refreshes from the done screen', () => {
     assert.deepEqual(reduce({ screen: 'done', page: 0, pageCount: 1 }, 'click'), { kind: 'refresh' });
+  });
+
+  it('goes back to the deck list on a double tap from the done screen', () => {
+    assert.deepEqual(reduce({ screen: 'done', page: 0, pageCount: 1 }, 'double_click'), {
+      kind: 'decks',
+    });
+  });
+
+  it('still retries on either tap from the error screen', () => {
+    const error = { screen: 'error' as const, page: 0, pageCount: 1 };
+    assert.deepEqual(reduce(error, 'click'), { kind: 'refresh' });
+    assert.deepEqual(reduce(error, 'double_click'), { kind: 'refresh' });
+  });
+});
+
+describe('deck list gestures', () => {
+  const list = (page: number) => ({ screen: 'decks' as const, page, pageCount: 3 });
+
+  it('moves the highlight with up and down without wrapping', () => {
+    assert.deepEqual(reduce(list(0), 'down'), { kind: 'select', index: 1 });
+    assert.deepEqual(reduce(list(1), 'up'), { kind: 'select', index: 0 });
+    assert.deepEqual(reduce(list(0), 'up'), { kind: 'none' });
+    assert.deepEqual(reduce(list(2), 'down'), { kind: 'none' });
+  });
+
+  it('starts the highlighted deck on a tap', () => {
+    assert.deepEqual(reduce(list(2), 'click'), { kind: 'pick', index: 2 });
+  });
+
+  it('ignores a double tap, so a doubled tap cannot pick twice', () => {
+    assert.deepEqual(reduce(list(1), 'double_click'), { kind: 'none' });
+  });
+
+  it('quits on a long press like every other screen', () => {
+    assert.deepEqual(reduce(list(1), 'long_press'), { kind: 'quit' });
   });
 });
 
