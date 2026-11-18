@@ -7,8 +7,19 @@
  */
 
 const BLOCK_TAGS = [
-  'br', 'div', 'p', 'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'div', 'p', 'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
 ];
+
+/**
+ * Placeholders for line breaks while the tags are stripped. A block edge and a
+ * <br> are kept apart because they mean different things: block edges that
+ * meet (`</div><div>`, a list closing inside a wrapper) are one break, while
+ * `<br><br>` is someone asking for a blank line. Private use code points, so
+ * they cannot collide with card text.
+ */
+const BLOCK_EDGE = '';
+const LINE_BREAK = '';
+const BREAK_RUN = /[\s]*[\s]*/g;
 
 const ENTITIES: Record<string, string> = {
   amp: '&',
@@ -128,12 +139,25 @@ export function htmlToText(html: string): string {
   text = text.replace(/<sub\b[^>]*>([\s\S]*?)<\/sub>/gi, '_($1)');
 
   // Cloze deletion placeholders render as [...]; keep them, they carry meaning.
+  text = text.replace(/<br\b[^>]*>/gi, LINE_BREAK);
   for (const tag of BLOCK_TAGS) {
-    text = text.replace(new RegExp(`<${tag}\\b[^>]*>`, 'gi'), '\n');
-    text = text.replace(new RegExp(`</${tag}>`, 'gi'), '\n');
+    text = text.replace(new RegExp(`<${tag}\\b[^>]*>`, 'gi'), BLOCK_EDGE);
+    text = text.replace(new RegExp(`</${tag}>`, 'gi'), BLOCK_EDGE);
   }
 
   text = text.replace(/<[^>]+>/g, '');
+
+  // Note types that put each field in its own block would otherwise get a
+  // blank line between every field, which on a six line screen pushes a four
+  // line question onto a second page. Any run of block edges, with only
+  // whitespace (template indentation) between them, becomes one break. Each
+  // <br> inside the run still counts, so <br><br> keeps its blank line.
+  text = text.replace(BREAK_RUN, (run) => {
+    const breaks = [...run].filter((char) => char === LINE_BREAK).length;
+    return '\n'.repeat(Math.max(1, breaks));
+  });
+  text = text.replaceAll(LINE_BREAK, '\n');
+
   text = decodeEntities(text);
   text = stripInvisibleCharacters(text);
   text = substituteForDisplay(text);

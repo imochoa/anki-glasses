@@ -9,6 +9,7 @@ import {
   stripInvisibleCharacters,
 } from '../src/core/html.js';
 import {
+  DEFAULT_LAYOUT,
   MAX_TEXT_BYTES,
   layoutPages,
   paginate,
@@ -52,6 +53,28 @@ describe('html', () => {
 
   it('turns block tags into line breaks', () => {
     assert.equal(htmlToText('one<br>two<div>three</div>'), 'one\ntwo\nthree');
+  });
+
+  it('does not put a blank line between fields that sit in their own blocks', () => {
+    // The shape of a note type that wraps each field, including template
+    // indentation between the tags.
+    const html = `<div class="wrap">
+  <div class="chips"><span>preposition</span></div>
+  <div class="headword">aus</div>
+  <ul><li>Which case does it take?</li>
+    <li>Meaning?</li></ul>
+</div>`;
+    assert.equal(htmlToText(html), 'preposition\naus\nWhich case does it take?\nMeaning?');
+  });
+
+  it('keeps a blank line someone asked for with two line breaks', () => {
+    assert.equal(htmlToText('one<br><br>two'), 'one\n\ntwo');
+    assert.equal(htmlToText('<div>one<br><br></div><div>two</div>'), 'one\n\ntwo');
+  });
+
+  it('fits a four line question on one screen', () => {
+    const html = '<div>preposition</div><div>aus</div><ul><li>Which case?</li><li>Meaning?</li></ul>';
+    assert.equal(layoutPages(htmlToText(html), DEFAULT_LAYOUT).length, 1);
   });
 
   it('decodes entities including numeric ones', () => {
