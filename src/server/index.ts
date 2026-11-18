@@ -13,11 +13,12 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Ease } from '../shared/types.js';
+import type { DeckListResponse, Ease, StartSessionResponse } from '../shared/types.js';
 import { AnkiClient, AnkiError } from './ankiconnect.js';
 import { loadConfig, type AppConfig } from './config.js';
 import { ReviewSession } from './session.js';
 import { buildReport } from './report.js';
+import { filterForDeck, listDecks } from './decks.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -115,10 +116,13 @@ export async function startServer(config: AppConfig, staticRoot?: string): Promi
   const accessKey = config.accessKey ?? randomBytes(16).toString('base64url');
 
   let session: ReviewSession | null = null;
+  /** The deck tree the running session is limited to, null for every deck. */
+  let sessionDeck: string | null = null;
 
   const ensureSession = async (): Promise<ReviewSession> => {
     if (!session) {
       session = new ReviewSession(anki, { ...config.session, filter: config.filter });
+      sessionDeck = null;
       await session.start();
     }
     return session;
@@ -168,16 +172,40 @@ export async function startServer(config: AppConfig, staticRoot?: string): Promi
       return;
     }
 
+    if (path === '/api/decks') {
+      const body: DeckListResponse = { decks: await listDecks(anki, config.filter) };
+      sendJson(res, 200, body, cors);
+      return;
+    }
+
     if (path === '/api/session/start' && req.method === 'POST') {
-      // Resume rather than replace. A reloaded WebView, or a second phone
-      // holding the same pairing url, would otherwise orphan the token the
-      // wearer is in the middle of grading with and lose that grade.
-      if (session && session.isActive()) {
-        sendJson(res, 200, session.state(), cors);
+      const body = (await readJsonBody(req)) as { deck?: unknown };
+      if (body.deck !== undefined && body.deck !== null && typeof body.deck !== 'string') {
+        sendJson(res, 400, { error: 'deck must be a deck name or null', code: 'bad-deck' }, cors);
         return;
       }
-      session = new ReviewSession(anki, { ...config.session, filter: config.filter });
-      sendJson(res, 200, await session.start(), cors);
+      const deck = typeof body.deck === 'string' ? body.deck : null;
+      const filter = deck === null ? config.filter : filterForDeck(config.filter, deck);
+      if (filter === null) {
+        sendJson(res, 400, { error: `Deck not allowed: ${deck}`, code: 'bad-deck' }, cors);
+        return;
+      }
+
+      // Resume rather than replace. A reloaded WebView, or a second phone
+      // holding the same pairing url, would otherwise orphan the token the
+      // wearer is in the middle of grading with and lose that grade. Picking a
+      // different deck is a deliberate switch, so that does replace it: a
+      // card left on screen stays due and ungraded, and a late answer for it
+      // is reported as unknown-token rather than written.
+      if (session && session.isActive() && sessionDeck === deck) {
+        const resumed: StartSessionResponse = { ...session.state(), deck };
+        sendJson(res, 200, resumed, cors);
+        return;
+      }
+      session = new ReviewSession(anki, { ...config.session, filter });
+      sessionDeck = deck;
+      const started: StartSessionResponse = { ...(await session.start()), deck };
+      sendJson(res, 200, started, cors);
       return;
     }
 

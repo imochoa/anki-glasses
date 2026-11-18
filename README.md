@@ -33,11 +33,22 @@ Two consequences worth knowing before you start:
 
 The ring and the temple pad send the same events, so either works.
 
-| Screen   | tap             | swipe up  | swipe down  | double tap | hold |
-| -------- | --------------- | --------- | ----------- | ---------- | ---- |
-| Question | show the answer | page back | show answer | nothing    | quit |
-| Answer   | Good            | Easy      | Again       | Hard       | quit |
-| Done     | check again     |           |             | check again| quit |
+| Screen    | tap             | swipe up  | swipe down  | double tap     | hold |
+| --------- | --------------- | --------- | ----------- | -------------- | ---- |
+| Deck list | start that deck | move up   | move down   | nothing        | quit |
+| Question  | show the answer | page back | show answer | nothing        | quit |
+| Answer    | Good            | Easy      | Again       | Hard           | quit |
+| Done      | check again     |           |             | back to decks  | quit |
+
+With more than one top level deck, the app opens on a deck list: **All
+decks** first, then each top level deck with the cards Anki would show from
+it today (learning plus reviews, after its daily limits). Subdecks are part of
+their parent's entry. Decks the configuration excludes are not listed, and a
+picked deck still obeys every other filter rule. With a single top level deck
+the list is skipped.
+
+To switch decks mid-session, quit and reopen the app, or finish the session
+and double tap. Switching leaves the card on screen due and ungraded.
 
 When a card is allowed to run to more than one page, the paging gestures win
 until the last page, so the gesture that carries you onto the last page can

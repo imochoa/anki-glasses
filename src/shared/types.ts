@@ -90,6 +90,30 @@ export interface SessionState {
   answered: number;
 }
 
+/** One deck tree the wearer can pick, with what Anki will serve from it today. */
+export interface DeckSummary {
+  name: string;
+  /**
+   * Learning plus review cards Anki would show today, after its own daily
+   * limits. New cards are left out, because a session only serves due cards.
+   */
+  due: number;
+}
+
+export interface DeckListResponse {
+  decks: DeckSummary[];
+}
+
+export interface StartSessionRequest {
+  /** One deck tree to review. Absent or null reviews every allowed deck. */
+  deck?: string | null;
+}
+
+export interface StartSessionResponse extends SessionState {
+  /** The deck tree this session is limited to, or null for every deck. */
+  deck: string | null;
+}
+
 export interface NextCardResponse {
   done: boolean;
   card?: ReviewCard;

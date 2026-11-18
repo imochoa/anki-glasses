@@ -100,13 +100,16 @@ export function sourceFromEventSource(value: number | undefined): GestureSource 
   }
 }
 
-export type Screen = 'loading' | 'question' | 'answer' | 'done' | 'error';
+export type Screen = 'loading' | 'decks' | 'question' | 'answer' | 'done' | 'error';
 
 export interface UiState {
   screen: Screen;
-  /** Page currently shown on the active side. */
+  /**
+   * Page currently shown on the active side. On the deck list it is the
+   * highlighted entry instead.
+   */
   page: number;
-  /** Pages available on the active side. */
+  /** Pages available on the active side, or entries on the deck list. */
   pageCount: number;
 }
 
@@ -116,7 +119,13 @@ export type Action =
   | { kind: 'reveal' }
   | { kind: 'grade'; ease: Ease }
   | { kind: 'quit' }
-  | { kind: 'refresh' };
+  | { kind: 'refresh' }
+  /** Move the highlight on the deck list. */
+  | { kind: 'select'; index: number }
+  /** Start a session on the highlighted deck. */
+  | { kind: 'pick'; index: number }
+  /** Go back to the deck list. */
+  | { kind: 'decks' };
 
 export interface GradeMapping {
   click: Ease;
@@ -167,6 +176,19 @@ export function reduce(
     case 'loading':
       return { kind: 'none' };
 
+    case 'decks': {
+      // The list does not wrap, so a swipe past either end is harmless and the
+      // wearer can always find the top by swiping up until nothing moves.
+      if (gesture === 'up') {
+        return canPageBack ? { kind: 'select', index: state.page - 1 } : { kind: 'none' };
+      }
+      if (gesture === 'down') {
+        return canPageForward ? { kind: 'select', index: state.page + 1 } : { kind: 'none' };
+      }
+      if (gesture === 'click') return { kind: 'pick', index: state.page };
+      return { kind: 'none' };
+    }
+
     case 'question': {
       // Double tap is deliberately inert here. Undo is not offered, because
       // AnkiConnect's undo reverses the last operation in the whole
@@ -204,6 +226,11 @@ export function reduce(
     }
 
     case 'done':
+      if (gesture === 'click') return { kind: 'refresh' };
+      // Nothing is on screen to grade, so a double tap cannot cost a review.
+      if (gesture === 'double_click') return { kind: 'decks' };
+      return { kind: 'none' };
+
     case 'error':
       if (gesture === 'click' || gesture === 'double_click') return { kind: 'refresh' };
       return { kind: 'none' };

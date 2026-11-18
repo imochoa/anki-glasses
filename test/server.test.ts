@@ -7,7 +7,7 @@ import { after, before, describe, it } from 'node:test';
 import { DEFAULT_CONFIG } from '../src/server/config.js';
 import { ACCESS_HEADER, startServer, type ServerHandle } from '../src/server/index.js';
 import { decksToExclude } from '../src/server/report.js';
-import { startMockAnki, type MockAnki } from '../tools/mock-anki.js';
+import { defaultCards, startMockAnki, type MockAnki } from '../tools/mock-anki.js';
 
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
@@ -120,6 +120,126 @@ describe('http server', () => {
       body: JSON.stringify({ token: 'x', ease: 9 }),
     });
     assert.equal(response.status, 400);
+  });
+});
+
+describe('picking a deck', () => {
+  let mock: MockAnki;
+  let server: ServerHandle;
+  let base: string;
+
+  before(async () => {
+    // Two trees: the default Demo cards, with the first three moved to Other.
+    const cards = defaultCards().map((card, index) =>
+      index < 3 ? { ...card, deckName: 'Other' } : card,
+    );
+    mock = await startMockAnki(cards);
+    server = await startServer({
+      ...DEFAULT_CONFIG,
+      ankiConnectUrl: mock.url,
+      host: '127.0.0.1',
+      port: 8715,
+      accessKey: 'test-key-that-is-long-enough',
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  });
+
+  after(async () => {
+    await server.close();
+    await mock.close();
+  });
+
+  const withKey = (path: string, init: RequestInit = {}) =>
+    fetch(`${base}${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', [ACCESS_HEADER]: server.accessKey, ...(init.headers ?? {}) },
+    });
+
+  const start = (deck: unknown) =>
+    withKey('/api/session/start', { method: 'POST', body: JSON.stringify({ deck }) });
+
+  it('refuses the deck list without the key', async () => {
+    assert.equal((await fetch(`${base}/api/decks`)).status, 401);
+  });
+
+  it('lists the top level trees alphabetically, without subdecks', async () => {
+    const body = await (await withKey('/api/decks')).json();
+    assert.deepEqual(
+      body.decks.map((deck: { name: string }) => deck.name),
+      ['Demo', 'Other'],
+    );
+    for (const deck of body.decks) assert.equal(typeof deck.due, 'number');
+  });
+
+  it('serves only cards from the picked deck', async () => {
+    const started = await (await start('Other')).json();
+    assert.equal(started.deck, 'Other');
+    const next = await (await withKey('/api/session/next')).json();
+    assert.equal(next.done, false);
+    assert.equal(next.card.deck, 'Other');
+  });
+
+  it('resumes the same deck but replaces the session for a different one', async () => {
+    const first = await (await start('Other')).json();
+    const again = await (await start('Other')).json();
+    assert.equal(again.sessionId, first.sessionId, 'the same deck should resume');
+
+    const switched = await (await start('Demo')).json();
+    assert.notEqual(switched.sessionId, first.sessionId, 'a new deck should start fresh');
+    assert.equal(switched.deck, 'Demo');
+    const next = await (await withKey('/api/session/next')).json();
+    assert.match(next.card.deck, /^Demo(::|$)/);
+  });
+
+  it('does not grade a card shown before the wearer switched decks', async () => {
+    await start('Other');
+    const shown = await (await withKey('/api/session/next')).json();
+    await start('Demo');
+    const before = mock.answers.length;
+    const result = await (
+      await withKey('/api/session/answer', {
+        method: 'POST',
+        body: JSON.stringify({ token: shown.card.token, ease: 3 }),
+      })
+    ).json();
+    assert.equal(result.outcome, 'unknown-token');
+    assert.equal(mock.answers.length, before, 'a stale token reached Anki');
+  });
+
+  it('refuses a deck that is not a name', async () => {
+    assert.equal((await start(42)).status, 400);
+  });
+});
+
+describe('a picked deck still obeys the configured filter', () => {
+  let mock: MockAnki;
+  let server: ServerHandle;
+
+  before(async () => {
+    mock = await startMockAnki();
+    server = await startServer({
+      ...DEFAULT_CONFIG,
+      ankiConnectUrl: mock.url,
+      host: '127.0.0.1',
+      port: 8716,
+      accessKey: 'test-key-that-is-long-enough',
+      filter: { ...DEFAULT_CONFIG.filter, excludeDecks: ['Demo::Sub'] },
+    });
+  });
+
+  after(async () => {
+    await server.close();
+    await mock.close();
+  });
+
+  it('refuses to start an excluded deck', async () => {
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/session/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', [ACCESS_HEADER]: server.accessKey },
+      body: JSON.stringify({ deck: 'Demo::Sub' }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, 'bad-deck');
   });
 });
 
