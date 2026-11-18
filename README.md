@@ -77,6 +77,32 @@ ANKI_GLASSES_KEY='something long and random' npm start
 
 Keep it in the environment rather than in the config file.
 
+### In a container
+
+The `Dockerfile` builds the server and the app into one image. The image
+holds only the build output, since the server has no runtime dependencies.
+Anki and AnkiConnect stay on the host:
+
+```bash
+docker build -t anki-glasses .
+docker run --rm -p 8710:8710 \
+  -e ANKI_GLASSES_KEY='something long and random' \
+  -e ANKI_CONNECT_URL=http://host.docker.internal:8765 \
+  anki-glasses
+```
+
+`host.docker.internal` reaches the host's loopback with Docker Desktop. With
+podman, use `host.containers.internal`. On Linux with Docker Engine,
+AnkiConnect's loopback is not reachable from the default bridge network, so
+run with `--network host` and leave `ANKI_CONNECT_URL` at its default.
+
+To use a config file, mount it and the server finds it at
+`/config/anki-glasses.config.json`:
+
+```bash
+-v "$PWD/anki-glasses.config.json:/config/anki-glasses.config.json:ro"
+```
+
 ## Getting it onto the glasses
 
 Install the Even App on the phone, pair the G2 and the R1 there as normal, then
