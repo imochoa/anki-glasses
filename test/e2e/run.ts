@@ -16,7 +16,7 @@ import { resolve } from 'node:path';
 
 import { DEFAULT_CONFIG } from '../../src/server/config.js';
 import { startServer } from '../../src/server/index.js';
-import { startMockAnki, type MockAnki } from '../../tools/mock-anki.js';
+import { defaultCards, startMockAnki, type MockAnki } from '../../tools/mock-anki.js';
 import { decodePng, differenceRatio, inkRatio, type Bitmap } from './png.js';
 
 /** The card body area of the display, matching the layout in glasses.ts. */
@@ -257,6 +257,71 @@ function lastFrame(entries: ConsoleEntry[]): Record<string, string> | null {
   return null;
 }
 
+/**
+ * With more than one deck tree the app opens on a deck list. A fresh mock,
+ * server and simulator, because the main run depends on there being a single
+ * tree so it lands straight on the first card.
+ */
+async function pickerScenario(): Promise<void> {
+  let mock: MockAnki | null = null;
+  let server: Awaited<ReturnType<typeof startServer>> | null = null;
+  let sim: Simulator | null = null;
+  const appPort = APP_PORT + 2;
+  const simPort = SIM_PORT + 1;
+
+  try {
+    // Demo keeps its Sub cards; everything filed directly under Demo moves to
+    // a second tree, Zoology.
+    const cards = defaultCards().map((card) =>
+      card.deckName === 'Demo' ? { ...card, deckName: 'Zoology' } : card,
+    );
+    mock = await startMockAnki(cards);
+    server = await startServer(
+      { ...DEFAULT_CONFIG, ankiConnectUrl: mock.url, host: '127.0.0.1', port: appPort },
+      resolve('dist/app'),
+    );
+    const child = spawn(
+      simulatorBinary(),
+      [`--automation-port=${simPort}`, `http://127.0.0.1:${server.port}/?k=${server.accessKey}`],
+      { stdio: 'ignore', env: process.env },
+    );
+    sim = new Simulator(child, simPort);
+    await sim.ready();
+    process.stdout.write('picker: simulator up\n');
+
+    await sim.waitFor(/"screen":"decks"/, 0, 30000);
+    let frame = lastFrame(sim.transcript);
+    const body = frame?.body ?? '';
+    check('picker lists every deck tree plus All decks', ['All decks', 'Demo', 'Zoology'].every((name) => body.includes(name)), body);
+    check('picker does not list subdecks on their own', !body.includes('Sub'), body);
+    check('picker highlights All decks first', body.split('\n')[0]?.startsWith('> All decks') ?? false, body);
+    check('picker footer explains the gestures', /tap start/.test(frame?.footer ?? ''), frame?.footer);
+    const { bitmap: decksBitmap } = await sim.settled('04-decks');
+    check('the deck list body actually has text drawn in it', inkRatio(decksBitmap, BODY_REGION) > 0.005);
+
+    let mark = sim.transcript.length;
+    await sim.input('down');
+    await sim.waitFor(/> Demo/, mark);
+    mark = sim.transcript.length;
+    await sim.input('down');
+    await sim.waitFor(/> Zoology/, mark);
+    check('swiping down moves the highlight', /> Zoology/.test(lastFrame(sim.transcript)?.body ?? ''));
+
+    mark = sim.transcript.length;
+    await sim.input('click');
+    await sim.waitFor(/"screen":"question"/, mark, 20000);
+    frame = lastFrame(sim.transcript);
+    check('tap starts the highlighted deck', /^Zoology\b/.test(frame?.header ?? ''), frame?.header);
+    check('no grade was written by picking a deck', mock.answers.length === 0, String(mock.answers.length));
+
+    check('no uncaught errors in the webview (picker)', !sim.transcript.some((entry) => /\[uncaught\]|\[unhandledrejection\]/.test(entry.message)));
+  } finally {
+    sim?.stop();
+    await server?.close();
+    await mock?.close();
+  }
+}
+
 async function main(): Promise<void> {
   if (!process.env.DISPLAY && process.platform === 'linux') {
     throw new Error('DISPLAY is not set. Start Xvfb and export DISPLAY, for example :77');
@@ -392,6 +457,8 @@ async function main(): Promise<void> {
     await server?.close();
     await mock?.close();
   }
+
+  await pickerScenario();
 
   process.stdout.write(`\n${checks.length} passed, ${failures.length} failed\n`);
   if (failures.length > 0) {
