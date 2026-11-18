@@ -67,6 +67,26 @@ describe('html', () => {
     assert.equal(htmlToText(html), 'preposition\naus\nWhich case does it take?\nMeaning?');
   });
 
+  it('keeps a space between spans that touch, as their css would', () => {
+    const html = '<div class="pair"><span class="w"><b>vor dem Haus</b></span><span class="en">in front of</span></div>';
+    assert.equal(htmlToText(html), 'vor dem Haus in front of');
+  });
+
+  it('puts a definition list term and its value on one line', () => {
+    const html = '<dl><dt>Präsens</dt><dd><span>er</span> bäckt</dd><dt>Perfekt</dt><dd>hat gebacken</dd></dl>';
+    assert.equal(htmlToText(html), 'Präsens: er bäckt\nPerfekt: hat gebacken');
+  });
+
+  it('separates table cells instead of joining them', () => {
+    const html = '<table><tr><th>Präsens</th><td>bäckt</td></tr><tr><td>a</td><td>b</td></tr></table>';
+    assert.equal(htmlToText(html), 'Präsens: bäckt\na | b');
+  });
+
+  it('does not split a word that is only partly formatted', () => {
+    assert.equal(htmlToText('<b>H</b>aus'), 'Haus');
+    assert.equal(htmlToText('Ge<i>schichte</i>'), 'Geschichte');
+  });
+
   it('keeps a blank line someone asked for with two line breaks', () => {
     assert.equal(htmlToText('one<br><br>two'), 'one\n\ntwo');
     assert.equal(htmlToText('<div>one<br><br></div><div>two</div>'), 'one\n\ntwo');
